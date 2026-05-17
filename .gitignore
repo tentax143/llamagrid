@@ -57,8 +57,20 @@ peers.json
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+plan.md
 $RECYCLE.BIN/
 *.lnk
+
+# ── PyInstaller internals ─────────────────────────────────────────────
+*.toc
+*.pyz
+*.pkg
+
+# ── Archives / downloads ──────────────────────────────────────────────
+*.zip
+
+# ── NSIS installer scripts (generated, not source-controlled) ─────────
+*.nsi
 
 # ── Temp / scratch ────────────────────────────────────────────────────
 *.tmp

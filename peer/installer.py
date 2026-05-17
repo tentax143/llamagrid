@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import winreg
 import zipfile
@@ -275,6 +276,25 @@ def check_service(cfg: PeerConfig, progress_cb=None) -> Step:
     return False, "Failed to install LlamaGridRPC service"
 
 
+def check_agent_service(cfg: PeerConfig, progress_cb=None) -> Step:
+    """Install LlamaGridAgent service so the heartbeat loop survives reboots."""
+    from peer.service import install_agent_service, service_exists, service_running, start_service
+    _progress(progress_cb, "Checking LlamaGrid agent service...")
+
+    if service_exists("LlamaGridAgent"):
+        if not service_running("LlamaGridAgent"):
+            start_service("LlamaGridAgent")
+        return True, "Service LlamaGridAgent already installed"
+
+    # sys.executable is peer.exe when packaged; python.exe when running from source
+    agent_exe = sys.executable
+    ok = install_agent_service(cfg, agent_exe)
+    if ok:
+        start_service("LlamaGridAgent")
+        return True, f"Service LlamaGridAgent installed ({agent_exe})"
+    return False, "Failed to install LlamaGridAgent service (peer heartbeat will not survive reboot)"
+
+
 def run_all_checks(
     cfg: PeerConfig,
     progress_cb: Callable[[str], None] | None = None,
@@ -291,7 +311,8 @@ def run_all_checks(
         ("rpc-server.exe",       lambda: check_rpc_server(cfg, progress_cb)),
         ("Firewall Rule",        lambda: check_firewall(cfg, progress_cb)),
         ("NSSM",                 lambda: check_nssm(cfg, progress_cb)),
-        ("Windows Service",      lambda: check_service(cfg, progress_cb)),
+        ("RPC Service",          lambda: check_service(cfg, progress_cb)),
+        ("Agent Service",        lambda: check_agent_service(cfg, progress_cb)),
     ]
 
     for name, fn in steps:
