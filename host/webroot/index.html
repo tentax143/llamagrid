@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LlamaGrid Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #222536;
+    --border: #2e3148;
+    --text: #e2e8f0;
+    --text-dim: #8892a4;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --purple: #a855f7;
+    --gray: #64748b;
+    --radius: 10px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Cluster bar ────────────────────────────────────────────────── */
+  #cluster-bar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 12px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  #cluster-bar .logo {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--blue);
+    letter-spacing: -0.5px;
+    margin-right: 8px;
+  }
+  .bar-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .bar-stat .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .bar-stat .value { font-size: 15px; font-weight: 600; }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot-yellow { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+  .dot-red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .dot-gray { background: var(--gray); }
+
+  /* ── Tabs ────────────────────────────────────────────────────────── */
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 12px 24px 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    padding: 8px 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+
+  /* ── Main content ────────────────────────────────────────────────── */
+  main { padding: 24px; }
+  section { display: none; }
+  section.active { display: block; }
+
+  /* ── Peer grid ───────────────────────────────────────────────────── */
+  #peer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+
+  .peer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--gray);
+    border-radius: var(--radius);
+    padding: 16px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .peer-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+  .peer-card.online  { border-top-color: var(--green); }
+  .peer-card.warning { border-top-color: var(--yellow); }
+  .peer-card.error,
+  .peer-card.offline { border-top-color: var(--red); }
+
+  .peer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .peer-name { font-weight: 700; font-size: 15px; }
+  .peer-ip { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .status-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-online  { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .badge-warning { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+  .badge-offline, .badge-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-pending { background: rgba(100,116,139,0.15); color: var(--gray); }
+
+  .bar-row { margin-bottom: 10px; }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .bar-track {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s;
+  }
+  .bar-fill.vram { background: var(--purple); }
+  .bar-fill.ram  { background: var(--blue); }
+  .bar-fill.warn { background: var(--yellow); }
+  .bar-fill.crit { background: var(--red); }
+
+  .peer-gpu { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .chip-warn  { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+  .chip-error { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .chip-info  { background: rgba(59,130,246,0.15); color: var(--blue); }
+
+  .peer-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .btn-sm {
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.15s;
+  }
+  .btn-sm:hover { background: var(--border); }
+  .btn-sm.danger { border-color: var(--red); color: var(--red); }
+  .btn-sm.danger:hover { background: rgba(239,68,68,0.1); }
+
+  .layers-badge {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    align-self: center;
+  }
+
+  /* ── Inference panel ─────────────────────────────────────────────── */
+  .inference-container { max-width: 900px; }
+  .model-selector-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .model-selector-row select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    min-width: 300px;
+  }
+  .btn {
+    padding: 9px 20px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.15s;
+  }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+  .btn-danger-solid { background: var(--red); color: #fff; }
+  .btn-danger-solid:hover { background: #dc2626; }
+
+  textarea#prompt {
+    width: 100%;
+    min-height: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    resize: vertical;
+    font-family: inherit;
+  }
+  .inference-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+  .inference-controls label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .inference-controls input[type=number] {
+    width: 80px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  pre#output {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 200px;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    color: var(--text);
+  }
+  .tps-display {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    text-align: right;
+  }
+
+  /* ── Alerts panel ────────────────────────────────────────────────── */
+  .alert-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .alert-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .alert-icon { font-size: 18px; flex-shrink: 0; }
+  .alert-body { flex: 1; }
+  .alert-peer { font-size: 11px; color: var(--text-dim); }
+  .alert-message { font-weight: 500; }
+  .alert-time { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .alert-item.error  { border-left: 3px solid var(--red); }
+  .alert-item.warning { border-left: 3px solid var(--yellow); }
+  .alert-item.info   { border-left: 3px solid var(--blue); }
+
+  /* ── Settings panel ──────────────────────────────────────────────── */
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    max-width: 600px;
+  }
+  .settings-section h3 { margin-bottom: 16px; font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .field-row { margin-bottom: 14px; }
+  .field-row label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 5px; }
+  .field-row input, .field-row select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .token-display {
+    font-family: monospace;
+    word-break: break-all;
+    font-size: 12px;
+    background: var(--surface2);
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--blue);
+  }
+
+  /* ── Modal ───────────────────────────────────────────────────────── */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  #modal-overlay.open { display: flex; }
+  #modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    max-width: 680px;
+    width: 90vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+  }
+  #modal-close {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  #modal-close:hover { color: var(--text); }
+  .modal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 20px;
+    margin: 16px 0;
+  }
+  .modal-field { }
+  .modal-field .mf-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+  .modal-field .mf-value { font-size: 13px; margin-top: 2px; word-break: break-all; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+  /* ── Empty state ─────────────────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+  /* ── Uptime / misc ───────────────────────────────────────────────── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .section-header h2 { font-size: 16px; }
+  .refresh-note { font-size: 11px; color: var(--text-dim); }
+  .badge-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    background: var(--red);
+    color: #fff;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+    padding: 0 4px;
+  }
+
+  /* ── Toast notifications ─────────────────────────────────────────── */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 200;
+  }
+  .toast {
+    padding: 12px 18px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    animation: slideIn 0.2s ease;
+    max-width: 340px;
+  }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+
+<!-- Cluster bar -->
+<header id="cluster-bar">
+  <span class="logo">🦙 LlamaGrid</span>
+  <div class="bar-stat">
+    <span class="label">Peers</span>
+    <span class="value" id="bar-peers">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">Total VRAM</span>
+    <span class="value" id="bar-vram">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">Free VRAM</span>
+    <span class="value" id="bar-vram-free">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">Total RAM</span>
+    <span class="value" id="bar-ram">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">Model</span>
+    <span class="value" id="bar-model">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">Speed</span>
+    <span class="value" id="bar-tps">—</span>
+  </div>
+  <div class="bar-stat">
+    <span class="label">llama-server</span>
+    <span class="value" id="bar-llama">—</span>
+  </div>
+</header>
+
+<!-- Tabs -->
+<nav>
+  <button class="active" data-tab="peers">Peers</button>
+  <button data-tab="inference">Inference</button>
+  <button data-tab="alerts">Alerts <span id="alert-badge" class="badge-count" style="display:none">0</span></button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<!-- Main -->
+<main>
+
+  <!-- Peers tab -->
+  <section id="tab-peers" class="active">
+    <div class="section-header">
+      <h2>Cluster Peers</h2>
+      <span class="refresh-note" id="last-refresh">Refreshing every 5s</span>
+    </div>
+    <div id="peer-grid"></div>
+  </section>
+
+  <!-- Inference tab -->
+  <section id="tab-inference">
+    <div class="inference-container">
+      <div class="model-selector-row">
+        <select id="model-select"></select>
+        <button class="btn btn-secondary" onclick="loadModel()">Load Model</button>
+        <button class="btn btn-secondary" onclick="restartLlama()">Restart Server</button>
+      </div>
+      <textarea id="prompt" placeholder="Enter your prompt here..."></textarea>
+      <div class="inference-controls">
+        <label>Max tokens <input type="number" id="max-tokens" value="512" min="1" max="32768"></label>
+        <label>Temperature <input type="number" id="temperature" value="0.7" min="0" max="2" step="0.1"></label>
+        <button class="btn btn-primary" id="btn-generate" onclick="generate()">Generate</button>
+        <button class="btn btn-danger-solid" id="btn-stop" style="display:none" onclick="stopGenerate()">Stop</button>
+      </div>
+      <pre id="output">Output will appear here...</pre>
+      <div class="tps-display" id="tps-display"></div>
+    </div>
+  </section>
+
+  <!-- Alerts tab -->
+  <section id="tab-alerts">
+    <div class="section-header">
+      <h2>Active Alerts</h2>
+      <button class="btn btn-secondary" onclick="refreshAll()">Refresh</button>
+    </div>
+    <ul class="alert-list" id="alert-list"></ul>
+  </section>
+
+  <!-- Settings tab -->
+  <section id="tab-settings">
+    <div class="settings-section">
+      <h3>Connection</h3>
+      <div class="field-row">
+        <label>Auth Token (share with peers)</label>
+        <div class="token-display" id="auth-token-display">loading...</div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>llama-server Controls</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="fetch('/api/llama/start',{method:'POST'}).then(()=>toast('llama-server started','success'))">Start</button>
+        <button class="btn btn-secondary" onclick="fetch('/api/llama/restart',{method:'POST'}).then(()=>toast('llama-server restarting','success'))">Restart</button>
+        <button class="btn btn-danger-solid" onclick="fetch('/api/llama/stop',{method:'POST'}).then(()=>toast('llama-server stopped'))">Stop</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Peer detail modal -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <button id="modal-close" onclick="closeModal()">✕</button>
+    <h2 id="modal-title">Peer Details</h2>
+    <div class="modal-grid" id="modal-grid"></div>
+    <div id="modal-alerts"></div>
+    <div class="modal-actions" id="modal-actions"></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+const POLL_MS = 5000;
+let _currentPeerId = null;
+let _generateCtrl = null;
+let _peers = [];
+let _clusterData = {};
+
+// ── Tab switching ────────────────────────────────────────────────────
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('main section').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Utility ──────────────────────────────────────────────────────────
+function fmt_mb(mb) {
+  if (mb >= 1024) return (mb/1024).toFixed(1) + ' GB';
+  return mb + ' MB';
+}
+function fmt_uptime(boot_epoch) {
+  const secs = Math.floor(Date.now()/1000) - boot_epoch;
+  const d = Math.floor(secs/86400);
+  const h = Math.floor((secs%86400)/3600);
+  const m = Math.floor((secs%3600)/60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+function fmt_time(epoch) {
+  return new Date(epoch*1000).toLocaleTimeString();
+}
+function bar_pct(used, total) {
+  if (!total) return 0;
+  return Math.min(100, Math.round(used/total*100));
+}
+function bar_class(pct) {
+  if (pct > 90) return 'crit';
+  if (pct > 75) return 'warn';
+  return '';
+}
+
+function toast(msg, type='') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Data fetching ────────────────────────────────────────────────────
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function refreshAll() {
+  try {
+    const [cluster, peers, alerts] = await Promise.all([
+      fetchJSON('/api/cluster'),
+      fetchJSON('/api/peers'),
+      fetchJSON('/api/alerts'),
+    ]);
+    _peers = peers;
+    _clusterData = cluster;
+    renderClusterBar(cluster);
+    renderPeerGrid(peers);
+    renderAlerts(alerts);
+    document.getElementById('last-refresh').textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.warn('Refresh failed:', e);
+  }
+}
+
+// ── Cluster bar ──────────────────────────────────────────────────────
+function renderClusterBar(c) {
+  document.getElementById('bar-peers').innerHTML =
+    `<span class="dot ${c.peers_online > 0 ? 'dot-green' : 'dot-gray'}"></span>${c.peers_online}/${c.peers_total}`;
+  document.getElementById('bar-vram').textContent = fmt_mb(c.total_vram_mb);
+  document.getElementById('bar-vram-free').textContent = fmt_mb(c.free_vram_mb);
+  document.getElementById('bar-ram').textContent = fmt_mb(c.total_ram_mb);
+  document.getElementById('bar-model').textContent = c.model_name || '—';
+  document.getElementById('bar-tps').textContent = c.tokens_per_sec > 0 ? c.tokens_per_sec.toFixed(1) + ' t/s' : '—';
+  const llamaEl = document.getElementById('bar-llama');
+  llamaEl.innerHTML = c.llama_server_running
+    ? `<span class="dot dot-green"></span>Running`
+    : `<span class="dot dot-red"></span>Stopped`;
+}
+
+// ── Peer grid ─────────────────────────────────────────────────────────
+function renderPeerGrid(peers) {
+  const grid = document.getElementById('peer-grid');
+  if (peers.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><h3>No peers connected</h3><p>Install the peer app on worker machines and point them at this host.</p></div>`;
+    return;
+  }
+  grid.innerHTML = '';
+  peers.forEach(p => grid.appendChild(makePeerCard(p)));
+}
+
+function makePeerCard(p) {
+  const card = document.createElement('div');
+  card.className = `peer-card ${p.status}`;
+  card.onclick = () => openModal(p.peer_id);
+
+  const sys = p.system || {};
+  const gpus = sys.gpus || [];
+  const gpu0 = gpus[0] || null;
+
+  // VRAM bar
+  let vramBar = '';
+  if (gpu0) {
+    const used = gpu0.vram_total_mb - gpu0.vram_free_mb;
+    const pct = bar_pct(used, gpu0.vram_total_mb);
+    const cls = bar_class(pct);
+    vramBar = `
+      <div class="bar-row">
+        <div class="bar-label"><span>VRAM ${gpu0.name.replace('NVIDIA ', '')}</span><span>${fmt_mb(gpu0.vram_free_mb)} free / ${fmt_mb(gpu0.vram_total_mb)}</span></div>
+        <div class="bar-track"><div class="bar-fill vram ${cls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  // RAM bar
+  let ramBar = '';
+  if (sys.ram_total_mb) {
+    const used = sys.ram_total_mb - sys.ram_free_mb;
+    const pct = bar_pct(used, sys.ram_total_mb);
+    const cls = bar_class(pct);
+    ramBar = `
+      <div class="bar-row">
+        <div class="bar-label"><span>RAM</span><span>${fmt_mb(sys.ram_free_mb || 0)} free / ${fmt_mb(sys.ram_total_mb)}</span></div>
+        <div class="bar-track"><div class="bar-fill ram ${cls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  // Alert chips
+  const alerts = p.alerts || [];
+  const chips = alerts.map(a => {
+    const cls = a.severity === 'error' ? 'chip-error' : a.severity === 'warning' ? 'chip-warn' : 'chip-info';
+    return `<span class="chip ${cls}">${a.code}</span>`;
+  }).join('');
+
+  const statusMap = { online:'badge-online', warning:'badge-warning', offline:'badge-offline', error:'badge-error', pending:'badge-pending' };
+  const badgeCls = statusMap[p.status] || 'badge-pending';
+
+  const uptime = sys.boot_time_epoch ? `Up ${fmt_uptime(sys.boot_time_epoch)}` : '';
+  const layers = p.layers_assigned != null ? `${p.layers_assigned} layers` : '';
+
+  card.innerHTML = `
+    <div class="peer-header">
+      <div>
+        <div class="peer-name">${escHtml(p.hostname)}</div>
+        <div class="peer-ip">${escHtml(p.ip)}:${p.rpc_port}</div>
+      </div>
+      <span class="status-badge ${badgeCls}">${p.status}</span>
+    </div>
+    ${vramBar}
+    ${ramBar}
+    ${gpu0 ? `<div class="peer-gpu">CUDA ${escHtml(gpu0.cuda_version || 'n/a')} · Driver ${escHtml(gpu0.driver_version || 'n/a')}</div>` : '<div class="peer-gpu">No GPU detected</div>'}
+    ${chips ? `<div class="chip-row">${chips}</div>` : ''}
+    <div class="peer-actions">
+      <button class="btn-sm" onclick="event.stopPropagation();restartPeer('${p.peer_id}')">Restart RPC</button>
+      <span class="layers-badge">${uptime}${uptime && layers ? ' · ' : ''}${layers}</span>
+    </div>`;
+
+  return card;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Peer modal ───────────────────────────────────────────────────────
+async function openModal(peerId) {
+  _currentPeerId = peerId;
+  try {
+    const p = await fetchJSON(`/api/peers/${peerId}`);
+    const sys = p.system || {};
+    const gpus = sys.gpus || [];
+
+    document.getElementById('modal-title').textContent = p.hostname;
+
+    const fields = [
+      ['IP', p.ip],
+      ['RPC Port', p.rpc_port],
+      ['Status', p.status],
+      ['rpc-server running', p.rpc_server_running ? '✓ Yes' : '✗ No'],
+      ['CPU', sys.cpu_model || '—'],
+      ['CPU Cores', sys.cpu_cores_logical ? `${sys.cpu_cores_physical}p / ${sys.cpu_cores_logical}L` : '—'],
+      ['RAM Total', fmt_mb(sys.ram_total_mb || 0)],
+      ['RAM Free', fmt_mb(sys.ram_free_mb || 0)],
+      ['Disk Free', `${sys.disk_free_gb || 0} GB`],
+      ['OS', sys.os_version || '—'],
+      ['rpc-server version', sys.rpc_server_version || '—'],
+      ['Agent version', sys.agent_version || '—'],
+      ['Uptime', sys.boot_time_epoch ? fmt_uptime(sys.boot_time_epoch) : '—'],
+      ['Layers assigned', p.layers_assigned != null ? p.layers_assigned : '—'],
+      ['Discovered via', p.discovered_via],
+      ['Last seen', fmt_time(p.last_seen)],
+    ];
+
+    gpus.forEach((g, i) => {
+      fields.push([`GPU ${i+1}`, g.name]);
+      fields.push([`GPU ${i+1} VRAM`, `${fmt_mb(g.vram_free_mb)} free / ${fmt_mb(g.vram_total_mb)}`]);
+      fields.push([`GPU ${i+1} Driver`, g.driver_version]);
+      fields.push([`GPU ${i+1} CUDA`, g.cuda_version || 'not detected']);
+    });
+
+    document.getElementById('modal-grid').innerHTML = fields.map(([l,v]) =>
+      `<div class="modal-field"><div class="mf-label">${escHtml(l)}</div><div class="mf-value">${escHtml(String(v))}</div></div>`
+    ).join('');
+
+    // Alert history
+    const alerts = p.alerts || [];
+    document.getElementById('modal-alerts').innerHTML = alerts.length
+      ? `<h4 style="margin:16px 0 8px;color:var(--text-dim)">Active Alerts</h4>` + alerts.map(a =>
+          `<div class="alert-item ${a.severity}" style="margin-bottom:6px">
+            <span class="alert-icon">${a.severity==='error'?'🔴':a.severity==='warning'?'🟡':'🔵'}</span>
+            <div class="alert-body">
+              <div class="alert-message">${escHtml(a.message)}</div>
+              <div class="alert-time">${a.code} · ${fmt_time(a.ts_epoch)}</div>
+            </div>
+          </div>`).join('')
+      : '';
+
+    if (p.last_error) {
+      document.getElementById('modal-alerts').innerHTML += `<div style="margin-top:12px;padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;font-size:12px;color:var(--red)">Last error: ${escHtml(p.last_error)}</div>`;
+    }
+
+    document.getElementById('modal-actions').innerHTML = `
+      <button class="btn btn-secondary" onclick="restartPeer('${peerId}')">Restart RPC</button>
+      <button class="btn btn-secondary" onclick="updatePeer('${peerId}')">Update RPC</button>
+      <button class="btn btn-secondary" style="margin-left:auto;color:var(--red)" onclick="forgetPeer('${peerId}')">Forget Peer</button>`;
+
+    document.getElementById('modal-overlay').classList.add('open');
+  } catch(e) {
+    toast('Failed to load peer details', 'error');
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  _currentPeerId = null;
+}
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// ── Peer actions ─────────────────────────────────────────────────────
+async function restartPeer(peerId) {
+  try {
+    await fetch(`/api/peers/${peerId}/restart`, { method: 'POST' });
+    toast('Restart queued — will apply on next heartbeat', 'success');
+  } catch(e) { toast('Failed to queue restart', 'error'); }
+}
+
+async function updatePeer(peerId) {
+  try {
+    await fetch(`/api/peers/${peerId}/update`, { method: 'POST' });
+    toast('Update queued — will apply on next heartbeat', 'success');
+  } catch(e) { toast('Failed to queue update', 'error'); }
+}
+
+async function forgetPeer(peerId) {
+  if (!confirm('Remove this peer from the registry? It will re-register on next heartbeat unless stopped.')) return;
+  try {
+    await fetch(`/api/peers/${peerId}/forget`, { method: 'POST' });
+    closeModal();
+    toast('Peer forgotten', 'success');
+    refreshAll();
+  } catch(e) { toast('Failed to forget peer', 'error'); }
+}
+
+// ── Alerts ───────────────────────────────────────────────────────────
+function renderAlerts(alerts) {
+  const badge = document.getElementById('alert-badge');
+  const errors = alerts.filter(a => a.severity === 'error');
+  if (errors.length > 0) {
+    badge.style.display = 'inline-flex';
+    badge.textContent = errors.length;
+  } else {
+    badge.style.display = 'none';
+  }
+
+  const list = document.getElementById('alert-list');
+  if (alerts.length === 0) {
+    list.innerHTML = '<div class="empty-state"><h3>No active alerts</h3><p>All peers healthy.</p></div>';
+    return;
+  }
+  list.innerHTML = alerts.map(a => `
+    <li class="alert-item ${a.severity}">
+      <span class="alert-icon">${a.severity==='error'?'🔴':a.severity==='warning'?'🟡':'🔵'}</span>
+      <div class="alert-body">
+        <div class="alert-peer">${escHtml(a.peer_id.slice(0,8))}</div>
+        <div class="alert-message">${escHtml(a.message)}</div>
+        <div class="alert-time">${a.code} · ${fmt_time(a.ts_epoch)}</div>
+      </div>
+    </li>`).join('');
+}
+
+// ── Model / inference ─────────────────────────────────────────────────
+async function loadModels() {
+  try {
+    const models = await fetchJSON('/api/models');
+    const sel = document.getElementById('model-select');
+    sel.innerHTML = models.map(m =>
+      `<option value="${escHtml(m.path)}">${escHtml(m.name)} (${m.size_gb} GB, ${m.quant})</option>`
+    ).join('');
+    if (!sel.innerHTML) sel.innerHTML = '<option value="">No .gguf files found</option>';
+  } catch(e) {}
+}
+
+async function loadModel() {
+  const path = document.getElementById('model-select').value;
+  if (!path) { toast('No model selected', 'error'); return; }
+  try {
+    await fetch('/api/model/select', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path}) });
+    toast('Model loading — llama-server restarting', 'success');
+  } catch(e) { toast('Failed to select model', 'error'); }
+}
+
+async function restartLlama() {
+  await fetch('/api/llama/restart', { method:'POST' });
+  toast('llama-server restarting', 'success');
+}
+
+async function generate() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) { toast('Enter a prompt first', 'error'); return; }
+
+  document.getElementById('btn-generate').disabled = true;
+  document.getElementById('btn-stop').style.display = 'inline-block';
+  document.getElementById('output').textContent = '';
+  document.getElementById('tps-display').textContent = '';
+
+  _generateCtrl = new AbortController();
+  const startTime = Date.now();
+  let tokenCount = 0;
+
+  try {
+    const res = await fetch('/api/inference', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        max_tokens: parseInt(document.getElementById('max-tokens').value),
+        temperature: parseFloat(document.getElementById('temperature').value),
+      }),
+      signal: _generateCtrl.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      document.getElementById('output').textContent = 'Error: ' + (err.error || res.statusText);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const out = document.getElementById('output');
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      // llama.cpp streams newline-delimited JSON objects
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const obj = JSON.parse(line);
+          if (obj.content) {
+            out.textContent += obj.content;
+            tokenCount++;
+            out.scrollTop = out.scrollHeight;
+          }
+        } catch {
+          out.textContent += text;
+        }
+      }
+    }
+
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed > 0 && tokenCount > 0) {
+      document.getElementById('tps-display').textContent = `${(tokenCount/elapsed).toFixed(1)} tokens/sec · ${tokenCount} tokens · ${elapsed.toFixed(1)}s`;
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      document.getElementById('output').textContent += '\n[Error: ' + e.message + ']';
+    }
+  } finally {
+    document.getElementById('btn-generate').disabled = false;
+    document.getElementById('btn-stop').style.display = 'none';
+    _generateCtrl = null;
+  }
+}
+
+function stopGenerate() {
+  if (_generateCtrl) _generateCtrl.abort();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const v = await fetchJSON('/api/version');
+    document.getElementById('auth-token-display').textContent = v.auth_token;
+  } catch(e) {}
+}
+
+// ── Init ──────────────────────────────────────────────────────────────
+refreshAll();
+loadModels();
+loadSettings();
+setInterval(refreshAll, POLL_MS);
+</script>
+</body>
+</html>

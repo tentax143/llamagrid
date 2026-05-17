@@ -1,0 +1,67 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+.Python
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+MANIFEST
+
+# ── Virtual environments / conda ──────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.conda/
+conda-env/
+
+# ── PyInstaller build artefacts ───────────────────────────────────────
+build/dist/
+build/output/
+build/work/
+*.spec.bak
+*.manifest
+*.exe.bak
+
+# ── Bundled binaries (populated by prepare_bundled.ps1 / fetch_binaries.py) ──
+host/bundled/
+peer/bundled/
+
+# ── Runtime data directories (created on first run, never committed) ──
+C:/LlamaGrid/
+
+# ── Logs ──────────────────────────────────────────────────────────────
+*.log
+*.log.*
+
+# ── Config files that may contain secrets ─────────────────────────────
+config.local.json
+peer_config.local.json
+peers.json
+
+# ── IDE ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# ── Windows ───────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ── Temp / scratch ────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
+*.rej
