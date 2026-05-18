@@ -316,7 +316,7 @@ class Coordinator:
 
     def _sweep_loop(self) -> None:
         while self._running:
-            time.sleep(10)
+            time.sleep(2)
             self._sweep()
 
     def _sweep(self) -> None:

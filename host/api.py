@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,25 @@ WEBROOT = os.path.join(os.path.dirname(__file__), "webroot")
 def build_flask_app(coord: "Coordinator", llama: "LlamaManager", cfg: "HostConfig") -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["JSON_SORT_KEYS"] = False
+
+    # Cached host system report (refreshed every 5 s via background thread)
+    _host_sys: dict = {"data": {}, "ts": 0.0}
+    _host_sys_lock = threading.Lock()
+
+    def _refresh_host_sys() -> None:
+        from shared.sysreport import build_system_report
+        while True:
+            try:
+                report = build_system_report()
+                with _host_sys_lock:
+                    _host_sys["data"] = report.model_dump()
+                    _host_sys["ts"] = time.time()
+            except Exception as e:
+                log.debug("host sysreport refresh failed: %s", e)
+            time.sleep(5)
+
+    _t = threading.Thread(target=_refresh_host_sys, daemon=True, name="host-sysreport")
+    _t.start()
 
     # ------------------------------------------------------------------ static
 
@@ -123,6 +143,12 @@ def build_flask_app(coord: "Coordinator", llama: "LlamaManager", cfg: "HostConfi
         )
         return jsonify(summary)
 
+    @app.route("/api/host/stats", methods=["GET"])
+    def api_host_stats():
+        with _host_sys_lock:
+            data = dict(_host_sys["data"])
+        return jsonify(data)
+
     @app.route("/api/models", methods=["GET"])
     def api_models():
         models = model_scanner.scan(cfg.model_dir)
@@ -173,17 +199,80 @@ def build_flask_app(coord: "Coordinator", llama: "LlamaManager", cfg: "HostConfi
         }
 
         def generate():
+            import json as _json
+            import time as _time
+            first_token_time = None
+            token_count = 0
+            line_buf = ''
             try:
                 with requests.post(llama_url, json=payload, stream=True, timeout=300) as r:
+                    if r.status_code != 200:
+                        try:
+                            err_body = r.json()
+                            err_obj = err_body.get("error", {})
+                            msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                        except Exception:
+                            msg = f"HTTP {r.status_code}"
+                        yield (_json.dumps({"error": msg, "status": r.status_code}) + "\n").encode()
+                        return
                     for chunk in r.iter_content(chunk_size=None):
                         if chunk:
+                            # Side-effect: parse lines to count output tokens for T/s measurement
+                            line_buf += chunk.decode("utf-8", errors="replace")
+                            while "\n" in line_buf:
+                                line, line_buf = line_buf.split("\n", 1)
+                                stripped = line.strip()
+                                if stripped.startswith("data: "):
+                                    stripped = stripped[6:]
+                                try:
+                                    obj = _json.loads(stripped)
+                                    if obj.get("content"):
+                                        if first_token_time is None:
+                                            first_token_time = _time.time()
+                                        token_count += 1
+                                except Exception:
+                                    pass
                             yield chunk
             except requests.ConnectionError:
-                yield b'{"error":"llama-server connection refused"}'
+                yield (_json.dumps({"error": "llama-server is not reachable - check that it is running"}) + "\n").encode()
+            except requests.Timeout:
+                yield (_json.dumps({"error": "llama-server timed out - model may still be loading"}) + "\n").encode()
             except Exception as e:
-                yield f'{{"error":"{str(e)}"}}'.encode()
+                yield (_json.dumps({"error": str(e)}) + "\n").encode()
+            finally:
+                if first_token_time and token_count > 1:
+                    elapsed = _time.time() - first_token_time
+                    if elapsed > 0:
+                        llama.record_tps(token_count / elapsed)
 
         return Response(stream_with_context(generate()), content_type="application/json")
+
+    @app.route("/api/llama/loading", methods=["GET"])
+    def api_llama_loading():
+        return jsonify(llama.loading_info())
+
+    @app.route("/api/llama/health", methods=["GET"])
+    def api_llama_health():
+        if not llama.is_running():
+            return jsonify({"status": "stopped"}), 200
+        try:
+            r = requests.get(
+                f"http://127.0.0.1:{cfg.llama_server_port}/health",
+                timeout=3,
+            )
+            return jsonify(r.json()), 200
+        except requests.ConnectionError:
+            return jsonify({"status": "starting"}), 200
+        except Exception:
+            return jsonify({"status": "unknown"}), 200
+
+    @app.route("/api/llama/rpc_status", methods=["GET"])
+    def api_llama_rpc_status():
+        return jsonify(llama.rpc_status())
+
+    @app.route("/api/llama/logs", methods=["GET"])
+    def api_llama_logs():
+        return jsonify({"lines": llama.startup_log()})
 
     # ------------------------------------------------------------------ llama-server control
 

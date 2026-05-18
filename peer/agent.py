@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 RPC_LOG = r"C:\LlamaGrid\logs\rpc.err.log"
+STATUS_FILE = r"C:\LlamaGrid\peer_status.json"
+_SYSREPORT_REBUILD_SEC = 30
 
 _CUDA_ERRORS = [
     "out of memory",
@@ -40,6 +42,9 @@ class Agent:
         self._mdns_info = None
         self._running = True
         self._registered = False
+        self._cached_report = None
+        self._last_report_time: float = 0.0
+        self._heartbeat_count: int = 0
 
     def run(self) -> None:
         log.info("LlamaGrid peer agent %s starting (peer_id=%s)", AGENT_VERSION, self.cfg.peer_id)
@@ -51,8 +56,7 @@ class Agent:
             try:
                 self._heartbeat_tick()
             except Exception:
-                log.warning("Heartbeat error:\n%s", traceback.format_exc())
-                self._maybe_rediscover_host()
+                log.warning("Heartbeat tick raised unexpectedly:\n%s", traceback.format_exc())
             time.sleep(self.cfg.heartbeat_interval_sec)
 
     def stop(self) -> None:
@@ -165,18 +169,57 @@ class Agent:
 
     # ------------------------------------------------------------------ heartbeat
 
-    def _heartbeat_tick(self) -> None:
-        if not self._registered:
-            self._register_with_retry()
-            return
+    def _get_sys_report(self):
+        now = time.monotonic()
+        if self._cached_report is None or (now - self._last_report_time) >= _SYSREPORT_REBUILD_SEC:
+            self._cached_report = build_system_report(self.cfg.resolved_rpc_path)
+            self._last_report_time = now
+        return self._cached_report
 
-        if not self._host:
-            self._maybe_rediscover_host()
+    def _write_status(self, rpc_running: bool, sys_report=None) -> None:
+        import json, datetime
+        self._heartbeat_count += 1
+        status = {
+            "last_heartbeat": datetime.datetime.now().isoformat(),
+            "host_ip": self.cfg.host_ip,
+            "host_port": self.cfg.host_port,
+            "rpc_running": rpc_running,
+            "peer_id": self.cfg.peer_id[:16],
+            "heartbeat_count": self._heartbeat_count,
+        }
+        if sys_report:
+            status["hostname"] = sys_report.hostname
+            status["cpu_model"] = sys_report.cpu_model
+            status["ram_free_mb"] = sys_report.ram_free_mb
+            status["ram_total_mb"] = sys_report.ram_total_mb
+            status["disk_free_gb"] = sys_report.disk_free_gb
+            if sys_report.gpus:
+                g = sys_report.gpus[0]
+                status["gpu_name"] = g.name
+                status["vram_free_mb"] = g.vram_free_mb
+                status["vram_total_mb"] = g.vram_total_mb
+                status["driver_version"] = g.driver_version
+        try:
+            with open(STATUS_FILE, "w", encoding="utf-8") as f:
+                json.dump(status, f)
+        except Exception:
+            pass
+
+    def _heartbeat_tick(self) -> None:
+        # Non-blocking re-registration: one attempt per tick, no backoff loop.
+        # _register_with_retry() (blocking) is only used at startup in run().
+        if not self._registered:
+            if not self._host:
+                # Only probe the cached IP — never do slow mDNS here.
+                from peer.host_discovery import discover_via_cache
+                self._host = discover_via_cache(self.cfg.host_ip, self.cfg.host_port)
+            if self._host:
+                self._register_once()
             return
 
         from peer.service import service_running
         rpc_running = service_running("LlamaGridRPC")
-        sys_report = build_system_report(self.cfg.resolved_rpc_path)
+        sys_report = self._get_sys_report()
         last_error = self._pop_pending_error()
 
         req = HeartbeatRequest(
@@ -191,17 +234,19 @@ class Agent:
             r = requests.post(
                 f"{self._host.base_url}/api/heartbeat",
                 json=req.model_dump(),
-                timeout=10,
+                timeout=4,  # short — must be well under peer_offline_after_sec
             )
-        except requests.ConnectionError:
-            log.warning("Host connection refused — marking host as lost")
+        except (requests.ConnectionError, requests.Timeout):
+            log.warning("Heartbeat failed — will retry next tick")
             self._registered = False
-            raise
+            return  # never block; retry on next tick
+        except Exception:
+            log.warning("Heartbeat error: %s", traceback.format_exc())
+            return
 
         if r.status_code == 404:
-            log.info("Host says peer unknown — re-registering")
+            log.info("Host says peer unknown — re-registering next tick")
             self._registered = False
-            self._register_once()
             return
 
         if r.status_code != 200:
@@ -215,6 +260,7 @@ class Agent:
             self._registered = False
             return
 
+        self._write_status(rpc_running, sys_report)
         self._apply_command(resp)
 
     # ------------------------------------------------------------------ commands

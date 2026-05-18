@@ -115,6 +115,9 @@
   .peer-card.warning { border-top-color: var(--yellow); }
   .peer-card.error,
   .peer-card.offline { border-top-color: var(--red); }
+  .peer-card.host-card { border-top-color: var(--blue); cursor: default; }
+  .peer-card.host-card:hover { transform: none; box-shadow: none; }
+  .badge-host { background: rgba(59,130,246,0.18); color: var(--blue); }
 
   .peer-header {
     display: flex;
@@ -285,6 +288,43 @@
     font-family: 'Cascadia Code', 'Consolas', monospace;
     color: var(--text);
   }
+  .load-card { padding: 12px; background: var(--surface2); border-radius: 8px; border: 1px solid var(--border); font-size: 13px; }
+  .load-card h4 { margin-bottom: 6px; font-size: 13px; color: var(--text); font-weight: 600; }
+  .load-track { height: 8px; background: var(--border); border-radius: 4px; margin: 6px 0; overflow: hidden; }
+  .load-fill  { height: 100%; background: var(--blue); border-radius: 4px; transition: width 1s linear; }
+  .load-fill.indeterminate { width: 40% !important; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0%{margin-left:-40%} 100%{margin-left:100%} }
+  .load-time  { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; }
+  .alloc-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .alloc-table td { padding: 3px 4px; font-size: 11px; vertical-align: middle; }
+  .alloc-table .alloc-name { color: var(--text-dim); white-space: nowrap; width: 100px; }
+  .alloc-table .alloc-ip   { color: var(--gray); font-size: 10px; width: 120px; }
+  .alloc-table .alloc-bar-cell { width: 100%; }
+  .alloc-mini-track { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .alloc-mini-fill  { height: 100%; border-radius: 3px; }
+  .alloc-mini-fill.rpc   { background: var(--purple); }
+  .alloc-mini-fill.cuda  { background: var(--green); }
+  .alloc-mini-fill.cpu   { background: var(--yellow); }
+  .alloc-size { color: var(--text); font-size: 11px; white-space: nowrap; padding-left: 6px; width: 60px; text-align: right; }
+  #inference-status {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 2px;
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #inference-status .spinner {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .tps-display {
     font-size: 12px;
     color: var(--text-dim);
@@ -443,6 +483,62 @@
   .toast.success { border-left: 3px solid var(--green); }
   .toast.error   { border-left: 3px solid var(--red); }
   @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+
+  /* ── Server log modal ────────────────────────────────────────────── */
+  #log-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  #log-modal-overlay.open { display: flex; }
+  #log-modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 92vw;
+    max-width: 1100px;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  #log-modal-box h3 { font-size: 14px; margin-bottom: 10px; }
+  #log-close {
+    position: absolute;
+    top: 14px; right: 16px;
+    background: none; border: none;
+    color: var(--text-dim); font-size: 20px;
+    cursor: pointer; line-height: 1;
+  }
+  #log-close:hover { color: var(--text); }
+  #log-filter {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 6px;
+    font-size: 12px; width: 280px; margin-bottom: 8px;
+  }
+  #log-output {
+    flex: 1;
+    overflow-y: auto;
+    background: #0a0c12;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #a0aec0;
+  }
+  #log-output .log-rpc   { color: #c084fc; }
+  #log-output .log-alloc { color: #34d399; }
+  #log-output .log-warn  { color: #fbbf24; }
+  #log-output .log-err   { color: #f87171; }
+  #log-output .log-ready { color: #60a5fa; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -478,6 +574,7 @@
     <span class="label">llama-server</span>
     <span class="value" id="bar-llama">—</span>
   </div>
+  <button class="btn btn-secondary" style="margin-left:auto;font-size:12px;padding:5px 12px" onclick="openLogModal()">Server Log</button>
 </header>
 
 <!-- Tabs -->
@@ -495,7 +592,11 @@
   <section id="tab-peers" class="active">
     <div class="section-header">
       <h2>Cluster Peers</h2>
-      <span class="refresh-note" id="last-refresh">Refreshing every 5s</span>
+      <span class="refresh-note" id="last-refresh">Refreshing every 2s</span>
+    </div>
+    <div id="rpc-missing-banner" style="display:none;padding:10px 14px;margin-bottom:14px;background:rgba(234,179,8,0.08);border:1px solid var(--yellow);border-radius:8px;font-size:13px;color:var(--yellow);align-items:center;gap:12px">
+      <span>&#9888; Some online peers were not included in the last llama-server start. Restart llama-server to include them.</span>
+      <button class="btn btn-secondary" style="flex-shrink:0;font-size:12px;padding:4px 12px" onclick="fetch('/api/llama/restart',{method:'POST'}).then(()=>toast('llama-server restarting — will include all current peers','success'))">Restart Now</button>
     </div>
     <div id="peer-grid"></div>
   </section>
@@ -516,6 +617,7 @@
         <button class="btn btn-danger-solid" id="btn-stop" style="display:none" onclick="stopGenerate()">Stop</button>
       </div>
       <pre id="output">Output will appear here...</pre>
+      <div id="inference-status"></div>
       <div class="tps-display" id="tps-display"></div>
     </div>
   </section>
@@ -563,12 +665,29 @@
 
 <div id="toast-container"></div>
 
+<!-- Server log modal -->
+<div id="log-modal-overlay">
+  <div id="log-modal-box">
+    <button id="log-close" onclick="closeLogModal()">✕</button>
+    <h3>llama-server Startup Log</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input id="log-filter" placeholder="Filter lines (e.g. RPC, buffer, layer)…" oninput="renderLog()">
+      <span id="log-line-count" style="font-size:11px;color:var(--text-dim)"></span>
+      <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;margin-left:auto" onclick="openLogModal()">Refresh</button>
+    </div>
+    <div id="log-output"></div>
+  </div>
+</div>
+
 <script>
-const POLL_MS = 5000;
+const POLL_MS = 2000;
 let _currentPeerId = null;
 let _generateCtrl = null;
 let _peers = [];
 let _clusterData = {};
+let _prevPeerStatus = {};   // peer_id → last known status string
+let _rpcStatus = null;      // {rpc_peers: [ip, ...], allocations: [{name, size_mb, peer_ip?}]}
+let _hostStats = null;      // host machine sysreport
 
 // ── Tab switching ────────────────────────────────────────────────────
 document.querySelectorAll('nav button').forEach(btn => {
@@ -624,19 +743,76 @@ async function fetchJSON(url) {
 
 async function refreshAll() {
   try {
-    const [cluster, peers, alerts] = await Promise.all([
+    const [cluster, peers, alerts, rpcStatus, hostStats] = await Promise.all([
       fetchJSON('/api/cluster'),
       fetchJSON('/api/peers'),
       fetchJSON('/api/alerts'),
+      fetchJSON('/api/llama/rpc_status').catch(() => null),
+      fetchJSON('/api/host/stats').catch(() => null),
     ]);
+    checkOfflineTransitions(peers);
     _peers = peers;
     _clusterData = cluster;
+    _rpcStatus = rpcStatus;
+    _hostStats = hostStats;
     renderClusterBar(cluster);
     renderPeerGrid(peers);
     renderAlerts(alerts);
     document.getElementById('last-refresh').textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
   } catch(e) {
     console.warn('Refresh failed:', e);
+  }
+}
+
+// ── Offline detection & notifications ────────────────────────────────
+function checkOfflineTransitions(peers) {
+  peers.forEach(p => {
+    const prev = _prevPeerStatus[p.peer_id];
+    const now  = p.status;
+    // Transition to offline from any online state
+    if (prev && prev !== 'offline' && now === 'offline') {
+      const name = p.hostname || p.peer_id.slice(0, 8);
+      onPeerOffline(name, p.peer_id);
+    }
+    _prevPeerStatus[p.peer_id] = now;
+  });
+}
+
+function onPeerOffline(name, peerId) {
+  toast(`${name} went OFFLINE`, 'error');
+  playAlertBeep();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification('LlamaGrid — Peer Offline', {
+        body: `${name} is no longer sending heartbeats`,
+        tag: 'peer-offline-' + peerId,
+        renotify: true,
+      });
+    } catch(e) {}
+  }
+}
+
+function playAlertBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [[880, 0], [660, 0.18]].forEach(([freq, t]) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25);
+      osc.start(ctx.currentTime + t);
+      osc.stop(ctx.currentTime + t + 0.26);
+    });
+  } catch(e) {}
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
   }
 }
 
@@ -658,12 +834,93 @@ function renderClusterBar(c) {
 // ── Peer grid ─────────────────────────────────────────────────────────
 function renderPeerGrid(peers) {
   const grid = document.getElementById('peer-grid');
-  if (peers.length === 0) {
-    grid.innerHTML = `<div class="empty-state"><h3>No peers connected</h3><p>Install the peer app on worker machines and point them at this host.</p></div>`;
-    return;
-  }
   grid.innerHTML = '';
-  peers.forEach(p => grid.appendChild(makePeerCard(p)));
+
+  // Always show the host card first
+  if (_hostStats && Object.keys(_hostStats).length > 0) {
+    grid.appendChild(makeHostCard(_hostStats, _clusterData));
+  }
+
+  if (peers.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.style.gridColumn = '1 / -1';
+    empty.innerHTML = `<h3>No peers connected</h3><p>Install the peer app on worker machines and point them at this host.</p>`;
+    grid.appendChild(empty);
+  } else {
+    peers.forEach(p => grid.appendChild(makePeerCard(p)));
+  }
+
+  // Show banner if any online peer is missing from RPC session
+  const banner = document.getElementById('rpc-missing-banner');
+  const hasRpc = _rpcStatus && _rpcStatus.rpc_peers && _rpcStatus.rpc_peers.length > 0;
+  const missingPeers = hasRpc
+    ? peers.filter(p => p.status === 'online' && !_rpcStatus.rpc_peers.includes(p.ip))
+    : [];
+  banner.style.display = missingPeers.length > 0 ? 'flex' : 'none';
+}
+
+function makeHostCard(sys, cluster) {
+  const card = document.createElement('div');
+  card.className = 'peer-card host-card';
+
+  const gpus = sys.gpus || [];
+  const gpu0 = gpus[0] || null;
+
+  let vramBar = '';
+  if (gpu0) {
+    const used = gpu0.vram_total_mb - gpu0.vram_free_mb;
+    const pct = bar_pct(used, gpu0.vram_total_mb);
+    const cls = bar_class(pct);
+    vramBar = `
+      <div class="bar-row">
+        <div class="bar-label"><span>VRAM ${gpu0.name.replace('NVIDIA ', '')}</span><span>${fmt_mb(gpu0.vram_free_mb)} free / ${fmt_mb(gpu0.vram_total_mb)}</span></div>
+        <div class="bar-track"><div class="bar-fill vram ${cls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  let ramBar = '';
+  if (sys.ram_total_mb) {
+    const used = sys.ram_total_mb - sys.ram_free_mb;
+    const pct = bar_pct(used, sys.ram_total_mb);
+    const cls = bar_class(pct);
+    ramBar = `
+      <div class="bar-row">
+        <div class="bar-label"><span>RAM</span><span>${fmt_mb(sys.ram_free_mb || 0)} free / ${fmt_mb(sys.ram_total_mb)}</span></div>
+        <div class="bar-track"><div class="bar-fill ram ${cls}" style="width:${pct}%"></div></div>
+      </div>`;
+  }
+
+  const llamaStatus = cluster.llama_server_running
+    ? `<span class="dot dot-green" style="margin-right:4px"></span>llama-server running`
+    : `<span class="dot dot-red" style="margin-right:4px"></span>llama-server stopped`;
+
+  const modelLabel = cluster.model_name
+    ? `<div class="peer-gpu" style="margin-top:6px">${escHtml(cluster.model_name)}</div>`
+    : '';
+
+  const uptime = sys.boot_time_epoch ? `Up ${fmt_uptime(sys.boot_time_epoch)}` : '';
+
+  card.innerHTML = `
+    <div class="peer-header">
+      <div>
+        <div class="peer-name">${escHtml(sys.hostname || 'Host')}</div>
+        <div class="peer-ip">${escHtml(sys.ip || '')} &mdash; this machine</div>
+      </div>
+      <span class="status-badge badge-host">HOST</span>
+    </div>
+    ${vramBar}
+    ${ramBar}
+    ${gpu0
+      ? `<div class="peer-gpu">CUDA ${escHtml(gpu0.cuda_version || 'n/a')} · Driver ${escHtml(gpu0.driver_version || 'n/a')}</div>`
+      : '<div class="peer-gpu">No NVIDIA GPU</div>'}
+    ${modelLabel}
+    <div class="peer-actions" style="align-items:center">
+      <span style="font-size:12px;color:var(--text-dim);display:flex;align-items:center">${llamaStatus}</span>
+      <span class="layers-badge">${uptime}</span>
+    </div>`;
+
+  return card;
 }
 
 function makePeerCard(p) {
@@ -708,6 +965,31 @@ function makePeerCard(p) {
     return `<span class="chip ${cls}">${a.code}</span>`;
   }).join('');
 
+  // RPC status chip
+  let rpcChip = '';
+  const hasRpc = _rpcStatus && _rpcStatus.rpc_peers && _rpcStatus.rpc_peers.length > 0;
+  if (hasRpc && p.status === 'online') {
+    if (!_rpcStatus.rpc_peers.includes(p.ip)) {
+      rpcChip = `<span class="chip chip-warn" title="This peer was not included in the last llama-server start">Not in RPC</span>`;
+    } else {
+      const alloc = (_rpcStatus.allocations || []).find(a => a.peer_ip === p.ip);
+      if (alloc) {
+        // If rpc-server reports far more memory than the peer's GPU VRAM, it's running in CPU mode
+        // (CUDA runtime missing/mismatched — e.g. built for CUDA 12, machine has CUDA 13)
+        const gpuVramMb = gpu0 ? gpu0.vram_total_mb : 0;
+        const isCpuMode = gpuVramMb > 0 && alloc.size_mb > gpuVramMb * 3;
+        if (isCpuMode) {
+          rpcChip = `<span class="chip chip-error" title="rpc-server is running in CPU mode — CUDA runtime mismatch (built for different CUDA version). Install matching CUDA runtime or rebuild rpc-server.exe.">RPC: CPU mode</span>`;
+        } else {
+          const label = _rpcStatus.alloc_type === 'buffer' ? 'model alloc' : 'free VRAM';
+          rpcChip = `<span class="chip chip-info" title="Reported to llama-server at startup">${fmtMb(alloc.size_mb)} ${label}</span>`;
+        }
+      }
+    }
+  }
+
+  const allChips = chips + rpcChip;
+
   const statusMap = { online:'badge-online', warning:'badge-warning', offline:'badge-offline', error:'badge-error', pending:'badge-pending' };
   const badgeCls = statusMap[p.status] || 'badge-pending';
 
@@ -725,7 +1007,7 @@ function makePeerCard(p) {
     ${vramBar}
     ${ramBar}
     ${gpu0 ? `<div class="peer-gpu">CUDA ${escHtml(gpu0.cuda_version || 'n/a')} · Driver ${escHtml(gpu0.driver_version || 'n/a')}</div>` : '<div class="peer-gpu">No GPU detected</div>'}
-    ${chips ? `<div class="chip-row">${chips}</div>` : ''}
+    ${allChips ? `<div class="chip-row">${allChips}</div>` : ''}
     <div class="peer-actions">
       <button class="btn-sm" onclick="event.stopPropagation();restartPeer('${p.peer_id}')">Restart RPC</button>
       <span class="layers-badge">${uptime}${uptime && layers ? ' · ' : ''}${layers}</span>
@@ -892,18 +1174,133 @@ async function restartLlama() {
   toast('llama-server restarting', 'success');
 }
 
+function fmtSec(s) {
+  if (!s) return '—';
+  if (s < 60) return `${Math.round(s)}s`;
+  return `${Math.floor(s/60)}m ${Math.round(s%60)}s`;
+}
+function fmtMb(mb) { return mb >= 1024 ? `${(mb/1024).toFixed(1)} GB` : `${Math.round(mb)} MB`; }
+
+function renderLoadCard(info) {
+  const pct   = info.progress_pct;
+  const fill  = pct != null
+    ? `<div class="load-fill" style="width:${pct}%"></div>`
+    : `<div class="load-fill indeterminate"></div>`;
+
+  let timeStr = `${fmtSec(info.elapsed_sec)} elapsed`;
+  if (info.estimated_total_sec) {
+    const rem = Math.max(0, info.estimated_total_sec - info.elapsed_sec);
+    timeStr += ` · ~${fmtSec(rem)} remaining`;
+  }
+  if (pct != null) timeStr += ` · ${pct}%`;
+
+  // Allocation rows
+  const totalMb = info.allocations.reduce((s, a) => s + a.size_mb, 0) || 1;
+  const allocRows = info.allocations.map(a => {
+    const type = a.name.toUpperCase().startsWith('RPC') ? 'rpc'
+               : a.name.toUpperCase().startsWith('CUDA') || a.name.toUpperCase().startsWith('GPU') ? 'cuda'
+               : 'cpu';
+    const barPct = Math.round(a.size_mb / totalMb * 100);
+    const ip = a.peer_ip ? `<td class="alloc-ip">${a.peer_ip}</td>` : `<td class="alloc-ip"></td>`;
+    return `<tr>
+      <td class="alloc-name">${escHtml(a.name)}</td>
+      ${ip}
+      <td class="alloc-bar-cell">
+        <div class="alloc-mini-track"><div class="alloc-mini-fill ${type}" style="width:${barPct}%"></div></div>
+      </td>
+      <td class="alloc-size">${fmtMb(a.size_mb)}</td>
+    </tr>`;
+  }).join('');
+
+  const layerStr = info.total_layers
+    ? `${info.offloaded_layers}/${info.total_layers} layers offloaded`
+    : '';
+
+  return `<div class="load-card">
+    <h4>Loading ${escHtml(info.model_name)} (${info.model_size_gb} GB) ${layerStr ? '· ' + layerStr : ''}</h4>
+    <div class="load-track">${fill}</div>
+    <div class="load-time">${timeStr}</div>
+    ${allocRows ? `<table class="alloc-table">${allocRows}</table>` : ''}
+  </div>`;
+}
+
+async function waitForModelReady(out, maxWaitSec = 300) {
+  const deadline = Date.now() + maxWaitSec * 1000;
+
+  while (Date.now() < deadline) {
+    let health, info;
+    try { health = await fetchJSON('/api/llama/health'); } catch(e) { health = {status:'unknown'}; }
+    try { info = await fetchJSON('/api/llama/loading'); } catch(e) { info = null; }
+
+    if (health.status === 'ok' && !(info && info.loading)) return true;
+
+    if (health.status === 'stopped') {
+      out.innerHTML = '';
+      out.textContent = 'llama-server is not running.\nGo to the Settings tab and click Start.';
+      setStatus('llama-server stopped');
+      document.getElementById('btn-generate').disabled = false;
+      document.getElementById('btn-stop').style.display = 'none';
+      return false;
+    }
+
+    // Show the rich loading card
+    if (info) {
+      out.innerHTML = renderLoadCard(info);
+      setStatus('Model loading — will generate automatically when ready…', true);
+    } else {
+      out.textContent = 'Model is loading, please wait…';
+      setStatus('Model loading…', true);
+    }
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  out.innerHTML = '';
+  out.textContent = 'Model did not finish loading within the timeout.\nTry clicking Generate again or check llama-server logs.';
+  setStatus('Timed out waiting for model');
+  document.getElementById('btn-generate').disabled = false;
+  document.getElementById('btn-stop').style.display = 'none';
+  return false;
+}
+
+function setStatus(msg, spinning = false) {
+  const el = document.getElementById('inference-status');
+  el.innerHTML = spinning
+    ? `<span class="spinner"></span><span>${msg}</span>`
+    : `<span style="color:var(--text-dim)">${msg}</span>`;
+}
+function clearStatus() { document.getElementById('inference-status').innerHTML = ''; }
+
 async function generate() {
+  // Abort any in-flight request so clicking Generate again always starts fresh.
+  if (_generateCtrl) { _generateCtrl.abort(); _generateCtrl = null; }
+
   const prompt = document.getElementById('prompt').value.trim();
   if (!prompt) { toast('Enter a prompt first', 'error'); return; }
 
+  const out   = document.getElementById('output');
+  const tpsEl = document.getElementById('tps-display');
+
   document.getElementById('btn-generate').disabled = true;
   document.getElementById('btn-stop').style.display = 'inline-block';
-  document.getElementById('output').textContent = '';
-  document.getElementById('tps-display').textContent = '';
+  out.textContent = '';
+  tpsEl.textContent = '';
+
+  // ── Pre-flight: check llama-server health, wait if loading ──────
+  setStatus('Checking llama-server…', true);
+  try {
+    const ready = await waitForModelReady(out);
+    if (!ready) return;   // stopped or timed out — waitForModelReady already set output
+  } catch(e) {
+    setStatus('Health check failed — trying anyway…');
+  }
+  setStatus('Sending prompt…', true);
 
   _generateCtrl = new AbortController();
   const startTime = Date.now();
   let tokenCount = 0;
+  let firstToken = true;
+  let stopped = false;
 
   try {
     const res = await fetch('/api/inference', {
@@ -918,42 +1315,84 @@ async function generate() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      document.getElementById('output').textContent = 'Error: ' + (err.error || res.statusText);
+      const err = await res.json().catch(() => ({}));
+      out.textContent = 'Error: ' + (err.error || res.statusText);
+      setStatus('Error — see output above');
       return;
     }
 
+    setStatus('Waiting for first token…', true);
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    const out = document.getElementById('output');
+    let buf = '';
 
-    while (true) {
+    const parseLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const jsonStr = trimmed.startsWith('data: ') ? trimmed.slice(6) : trimmed;
+      try {
+        const obj = JSON.parse(jsonStr);
+
+        // Surface errors the backend or llama-server sent through the stream
+        if (obj.error) {
+          const isLoading = typeof obj.error === 'string' && obj.error.toLowerCase().includes('loading');
+          if (isLoading) {
+            out.textContent = 'Model is still loading — please wait a moment and try again.';
+            setStatus('Model loading — try again shortly');
+          } else {
+            if (firstToken) { out.textContent = ''; firstToken = false; }
+            out.textContent += '\n[Error: ' + obj.error + ']';
+            setStatus('Error — see output');
+          }
+          stopped = true;
+          return;
+        }
+
+        if (obj.content !== undefined && obj.content !== '') {
+          if (firstToken) {
+            out.innerHTML = '';   // clear any load-card HTML
+            out.textContent = '';
+            firstToken = false;
+            setStatus('Generating…', true);
+          }
+          out.textContent += obj.content;
+          tokenCount++;
+          out.scrollTop = out.scrollHeight;
+          // Update live token counter in the status line every 10 tokens
+          if (tokenCount % 10 === 0) setStatus(`Generating… ${tokenCount} tokens`, true);
+        }
+        if (obj.stop) stopped = true;
+      } catch { /* not JSON — SSE comment, ignore */ }
+    };
+
+    while (!stopped) {
       const { value, done } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      // llama.cpp streams newline-delimited JSON objects
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        try {
-          const obj = JSON.parse(line);
-          if (obj.content) {
-            out.textContent += obj.content;
-            tokenCount++;
-            out.scrollTop = out.scrollHeight;
-          }
-        } catch {
-          out.textContent += text;
-        }
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) parseLine(line);
+    }
+    if (buf.trim()) parseLine(buf);
+
+    if (firstToken) {
+      out.textContent = 'No response received.\n\nPossible reasons:\n  • Model is still loading (wait and try again)\n  • llama-server ran out of context / slots\n  • Prompt was empty after processing';
+      setStatus('No response — check llama-server logs');
+    } else {
+      const elapsed = (Date.now() - startTime) / 1000;
+      if (elapsed > 0 && tokenCount > 0) {
+        const tps = (tokenCount / elapsed).toFixed(1);
+        tpsEl.textContent = `${tps} tok/s · ${tokenCount} tokens · ${elapsed.toFixed(1)}s`;
+        clearStatus();
       }
     }
-
-    const elapsed = (Date.now() - startTime) / 1000;
-    if (elapsed > 0 && tokenCount > 0) {
-      document.getElementById('tps-display').textContent = `${(tokenCount/elapsed).toFixed(1)} tokens/sec · ${tokenCount} tokens · ${elapsed.toFixed(1)}s`;
-    }
   } catch(e) {
-    if (e.name !== 'AbortError') {
-      document.getElementById('output').textContent += '\n[Error: ' + e.message + ']';
+    if (e.name === 'AbortError') {
+      setStatus('Stopped');
+    } else {
+      out.textContent = '[Error: ' + e.message + ']';
+      setStatus('Error');
     }
   } finally {
     document.getElementById('btn-generate').disabled = false;
@@ -966,6 +1405,64 @@ function stopGenerate() {
   if (_generateCtrl) _generateCtrl.abort();
 }
 
+// ── Server log modal ──────────────────────────────────────────────────
+let _logLines = [];
+
+async function openLogModal() {
+  document.getElementById('log-modal-overlay').classList.add('open');
+  document.getElementById('log-output').textContent = 'Loading…';
+  try {
+    const data = await fetchJSON('/api/llama/logs');
+    _logLines = data.lines || [];
+    renderLog();
+  } catch(e) {
+    document.getElementById('log-output').textContent = 'Failed to fetch log: ' + e.message;
+  }
+}
+
+function closeLogModal() {
+  document.getElementById('log-modal-overlay').classList.remove('open');
+}
+document.getElementById('log-modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('log-modal-overlay')) closeLogModal();
+});
+
+function renderLog() {
+  const filter = document.getElementById('log-filter').value.trim().toLowerCase();
+  const lines = filter ? _logLines.filter(l => l.toLowerCase().includes(filter)) : _logLines;
+  document.getElementById('log-line-count').textContent = `${lines.length} / ${_logLines.length} lines`;
+
+  const out = document.getElementById('log-output');
+  out.innerHTML = '';
+  if (lines.length === 0) {
+    out.textContent = _logLines.length === 0
+      ? 'No log yet — restart llama-server to capture startup output.'
+      : 'No lines match filter.';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  lines.forEach(raw => {
+    const span = document.createElement('span');
+    const lo = raw.toLowerCase();
+    if (lo.includes('error') || lo.includes('failed') || lo.includes('abort')) {
+      span.className = 'log-err';
+    } else if (lo.includes('warn')) {
+      span.className = 'log-warn';
+    } else if (lo.includes('listening at') || lo.includes('server is listening')) {
+      span.className = 'log-ready';
+    } else if (lo.includes('rpc')) {
+      span.className = 'log-rpc';
+    } else if (lo.includes('buffer size') || lo.includes('layer') || lo.includes('offload')) {
+      span.className = 'log-alloc';
+    }
+    span.textContent = raw + '\n';
+    frag.appendChild(span);
+  });
+  out.appendChild(frag);
+  out.scrollTop = out.scrollHeight;
+}
+
 // ── Settings ──────────────────────────────────────────────────────────
 async function loadSettings() {
   try {
@@ -975,6 +1472,7 @@ async function loadSettings() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────
+requestNotificationPermission();
 refreshAll();
 loadModels();
 loadSettings();

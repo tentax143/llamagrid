@@ -29,8 +29,8 @@ class HostConfig:
     rpc_port: int = 50052
     max_peers: int = 30
     auth_token: str = field(default_factory=lambda: str(uuid.uuid4()))
-    heartbeat_interval_sec: int = 30
-    peer_offline_after_sec: int = 90
+    heartbeat_interval_sec: int = 2
+    peer_offline_after_sec: int = 20
     auto_start_inference: bool = False
     llama_server_args: LlamaServerArgs = field(default_factory=LlamaServerArgs)
 
@@ -52,6 +52,19 @@ def load_config() -> HostConfig:
     args = LlamaServerArgs(**{k: v for k, v in args_data.items() if k in LlamaServerArgs.__dataclass_fields__})
     cfg = HostConfig(**{k: v for k, v in data.items() if k in HostConfig.__dataclass_fields__ and k != "llama_server_args"})
     cfg.llama_server_args = args
+
+    # Migrate stale values from old configs written before defaults changed.
+    changed = False
+    if cfg.heartbeat_interval_sec == 30:
+        cfg.heartbeat_interval_sec = 2
+        changed = True
+    if cfg.peer_offline_after_sec in (90, 10):
+        cfg.peer_offline_after_sec = 20
+        changed = True
+    if changed:
+        _save(cfg)
+        log.info("Migrated host config: heartbeat_interval_sec=2, peer_offline_after_sec=20")
+
     return cfg
 
 

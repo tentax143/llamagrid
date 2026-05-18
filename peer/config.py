@@ -27,7 +27,7 @@ _STATE_KEYS = {
     "installed": False,
     "rpc_server_path": "",
     "nssm_path": r"C:\LlamaGrid\nssm.exe",
-    "heartbeat_interval_sec": 30,
+    "heartbeat_interval_sec": 2,
     "host_version": "",
 }
 
@@ -49,7 +49,7 @@ class PeerConfig:
         self.installed: bool = bool(data.get("installed", False))
         self.rpc_server_path: str = data.get("rpc_server_path", "")
         self.nssm_path: str = data.get("nssm_path", r"C:\LlamaGrid\nssm.exe")
-        self.heartbeat_interval_sec: int = int(data.get("heartbeat_interval_sec", 30))
+        self.heartbeat_interval_sec: int = int(data.get("heartbeat_interval_sec", 2))
         self.host_version: str = data.get("host_version", "")
 
     @property
@@ -94,7 +94,13 @@ def load_config() -> PeerConfig:
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return PeerConfig(data)
+        cfg = PeerConfig(data)
+        # Migrate stale interval written by older versions.
+        if cfg.heartbeat_interval_sec == 30:
+            cfg.heartbeat_interval_sec = 2
+            save_config(cfg)
+            log.info("Migrated peer config: heartbeat_interval_sec=2")
+        return cfg
     except Exception as e:
         log.error("Failed to load peer config: %s — using defaults", e)
         return PeerConfig({})

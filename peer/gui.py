@@ -52,8 +52,8 @@ class FirstRunWizard:
         font = ("Segoe UI", size, "bold" if bold else "normal")
         return tk.Label(parent, text=text, font=font, fg=color, bg="#1a1d27", **kwargs)
 
-    def _btn(self, parent, text, command, primary=False):
-        bg = "#3b82f6" if primary else "#2e3148"
+    def _btn(self, parent, text, command, primary=False, danger=False):
+        bg = "#ef4444" if danger else ("#3b82f6" if primary else "#2e3148")
         fg = "#ffffff"
         b = tk.Button(
             parent, text=text, command=command,
@@ -261,23 +261,165 @@ class FirstRunWizard:
         self._clear()
         f = self._frame
 
-        from peer.service import service_running
-        rpc_running = service_running("LlamaGridRPC")
+        self._label(f, "LlamaGrid Peer", size=16, bold=True, color="#3b82f6").pack(pady=(4, 0))
+        self._label(f, f"ID: {self.cfg.peer_id[:20]}...", size=9, color="#4a5568").pack()
 
-        self._label(f, "🦙 LlamaGrid Peer", size=16, bold=True, color="#3b82f6").pack(pady=(10, 4))
+        tk.Frame(f, height=1, bg="#2e3148").pack(fill=tk.X, pady=8)
 
-        status_color = "#22c55e" if rpc_running else "#ef4444"
-        status_text = "rpc-server: RUNNING" if rpc_running else "rpc-server: STOPPED"
-        self._label(f, status_text, size=12, color=status_color).pack(pady=8)
+        # ── Service status ────────────────────────────────────────────
+        svc_row = tk.Frame(f, bg="#1a1d27")
+        svc_row.pack(pady=1)
+        rpc_lbl = self._label(svc_row, "rpc-server: checking...", size=11, color="#eab308")
+        rpc_lbl.pack(side=tk.LEFT, padx=(0, 16))
+        agent_lbl = self._label(svc_row, "agent svc: checking...", size=11, color="#eab308")
+        agent_lbl.pack(side=tk.LEFT)
 
-        self._label(f, f"Peer ID: {self.cfg.peer_id[:16]}...", size=9, color="#64748b").pack()
-        self._label(f, f"Host: {self.cfg.host_ip}:{self.cfg.host_port}", size=10, color="#8892a4").pack(pady=4)
+        # ── Heartbeat pulse ───────────────────────────────────────────
+        hb_row = tk.Frame(f, bg="#1a1d27")
+        hb_row.pack(pady=4)
+        pulse_lbl = self._label(hb_row, "●", size=16, color="#4a5568")
+        pulse_lbl.pack(side=tk.LEFT, padx=(0, 8))
+        hb_lbl = self._label(hb_row, "Waiting for first heartbeat...", size=11, color="#64748b")
+        hb_lbl.pack(side=tk.LEFT)
 
+        host_lbl = self._label(f, f"Host: {self.cfg.host_ip}:{self.cfg.host_port}", size=10, color="#8892a4")
+        host_lbl.pack()
+        count_lbl = self._label(f, "", size=9, color="#4a5568")
+        count_lbl.pack()
+
+        tk.Frame(f, height=1, bg="#2e3148").pack(fill=tk.X, pady=8)
+
+        # ── Last sent to host ─────────────────────────────────────────
+        self._label(f, "Last sent to host", size=9, bold=True, color="#64748b").pack(anchor=tk.W)
+        payload_box = tk.Frame(f, bg="#0f1117", relief=tk.FLAT, bd=0)
+        payload_box.pack(fill=tk.X, pady=(2, 0))
+        gpu_lbl  = tk.Label(payload_box, text="  GPU:  —",   font=("Consolas", 9), fg="#8892a4", bg="#0f1117", anchor=tk.W)
+        vram_lbl = tk.Label(payload_box, text="  VRAM: —",   font=("Consolas", 9), fg="#8892a4", bg="#0f1117", anchor=tk.W)
+        ram_lbl  = tk.Label(payload_box, text="  RAM:  —",   font=("Consolas", 9), fg="#8892a4", bg="#0f1117", anchor=tk.W)
+        disk_lbl = tk.Label(payload_box, text="  Disk: —",   font=("Consolas", 9), fg="#8892a4", bg="#0f1117", anchor=tk.W)
+        rpc_payload_lbl = tk.Label(payload_box, text="  RPC:  —", font=("Consolas", 9), fg="#8892a4", bg="#0f1117", anchor=tk.W)
+        for lbl in (gpu_lbl, vram_lbl, ram_lbl, disk_lbl, rpc_payload_lbl):
+            lbl.pack(fill=tk.X, padx=4, pady=0)
+
+        tk.Frame(f, height=1, bg="#2e3148").pack(fill=tk.X, pady=8)
+
+        # ── Buttons ───────────────────────────────────────────────────
         import webbrowser
         btn_row = tk.Frame(f, bg="#1a1d27")
-        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=8)
-        self._btn(btn_row, "Open Dashboard", lambda: webbrowser.open(f"http://{self.cfg.host_ip}:{self.cfg.host_port}"), primary=True).pack(side=tk.RIGHT)
-        self._btn(btn_row, "View Log", lambda: os.startfile(r"C:\LlamaGrid\logs\peer_agent.log")).pack(side=tk.LEFT)
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=2)
+
+        stop_btn = self._btn(btn_row, "⬛ Stop All", None, danger=True)
+        stop_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._btn(btn_row, "View Log",
+                  lambda: os.startfile(r"C:\LlamaGrid\logs\peer_agent.log")).pack(side=tk.LEFT)
+        self._btn(btn_row, "Open Dashboard",
+                  lambda: webbrowser.open(f"http://{self.cfg.host_ip}:{self.cfg.host_port}"),
+                  primary=True).pack(side=tk.RIGHT)
+
+        def do_stop_all():
+            if not messagebox.askyesno(
+                "Stop All",
+                "Stop rpc-server and agent services and close?\n\n"
+                "This peer will go offline. Open the exe again to bring it back.",
+                icon="warning",
+            ):
+                return
+            stop_btn.config(state=tk.DISABLED, text="Stopping…")
+            self.root.update()
+
+            def _worker():
+                import subprocess
+                from peer.service import stop_service
+                stop_service("LlamaGridAgent")
+                stop_service("LlamaGridRPC")
+                subprocess.run(["taskkill", "/F", "/IM", "rpc-server.exe"], capture_output=True)
+                agent = getattr(self, "_agent", None)
+                if agent:
+                    agent.stop()
+                self.root.after(0, self.root.destroy)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        stop_btn.config(command=do_stop_all)
+
+        # ── Live poll ─────────────────────────────────────────────────
+        self._pulse_state = False
+        self._svc_tick = 0
+
+        def poll():
+            import json, datetime, os as _os
+            STATUS_FILE = r"C:\LlamaGrid\peer_status.json"
+
+            # Service status — check every 2 s (every 4th 500ms tick)
+            self._svc_tick = (self._svc_tick + 1) % 4
+            if self._svc_tick == 0:
+                try:
+                    from peer.service import service_running
+                    rpc_ok = service_running("LlamaGridRPC")
+                    rpc_lbl.config(
+                        text="rpc-server: RUNNING" if rpc_ok else "rpc-server: STOPPED",
+                        fg="#22c55e" if rpc_ok else "#ef4444",
+                    )
+                    agent_ok = service_running("LlamaGridAgent")
+                    agent_lbl.config(
+                        text="agent svc: RUNNING" if agent_ok else "agent svc: STOPPED",
+                        fg="#22c55e" if agent_ok else "#eab308",
+                    )
+                except Exception:
+                    pass
+
+            # Heartbeat + payload — every tick
+            try:
+                if not _os.path.isfile(STATUS_FILE):
+                    raise FileNotFoundError
+                with open(STATUS_FILE, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+
+                last_hb = datetime.datetime.fromisoformat(data["last_heartbeat"])
+                elapsed = (datetime.datetime.now() - last_hb).total_seconds()
+
+                if elapsed < 4:
+                    self._pulse_state = not self._pulse_state
+                    dot_color = "#22c55e" if self._pulse_state else "#16a34a"
+                elif elapsed < 20:
+                    dot_color = "#eab308"
+                else:
+                    dot_color = "#ef4444"
+                pulse_lbl.config(fg=dot_color)
+
+                age = f"{elapsed:.1f}s ago" if elapsed < 60 else f"{int(elapsed/60)}m {int(elapsed%60)}s ago"
+                hb_lbl.config(text=f"Sending heartbeat every 2s  ·  last {age}", fg="#e2e8f0")
+
+                host_lbl.config(text=f"Host: {data.get('host_ip', self.cfg.host_ip)}:{data.get('host_port', self.cfg.host_port)}")
+                count_lbl.config(text=f"{data.get('heartbeat_count', 0)} heartbeats sent this session")
+
+                # Payload panel
+                if "gpu_name" in data:
+                    gpu_lbl.config(text=f"  GPU:  {data['gpu_name']}")
+                    vfree = data.get("vram_free_mb", 0)
+                    vtotal = data.get("vram_total_mb", 0)
+                    vram_lbl.config(
+                        text=f"  VRAM: {vfree/1024:.1f} GB free / {vtotal/1024:.1f} GB total",
+                        fg="#22c55e" if vfree > 1024 else "#ef4444",
+                    )
+                rfree = data.get("ram_free_mb", 0)
+                rtotal = data.get("ram_total_mb", 0)
+                if rtotal:
+                    ram_lbl.config(text=f"  RAM:  {rfree/1024:.1f} GB free / {rtotal/1024:.1f} GB total")
+                if "disk_free_gb" in data:
+                    disk_lbl.config(text=f"  Disk: {data['disk_free_gb']} GB free")
+                rpc_payload_lbl.config(
+                    text=f"  RPC:  {'RUNNING' if data.get('rpc_running') else 'STOPPED'}",
+                    fg="#22c55e" if data.get("rpc_running") else "#ef4444",
+                )
+
+            except Exception:
+                hb_lbl.config(text="Waiting for first heartbeat...", fg="#64748b")
+                pulse_lbl.config(fg="#4a5568")
+
+            self.root.after(500, poll)
+
+        poll()
         self.root.mainloop()
 
 
